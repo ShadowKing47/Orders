@@ -54,17 +54,29 @@ optimizations applied.
 
 ## Setup
 
-1. Copy your credentials into the root `.env` — this is the **single source
-   of truth** for every env var, backend and frontend alike:
-   - `DATABASE_URL`, `TEMPORAL_HOST`, `ANTHROPIC_API_KEY`, `FASTAPI_PORT`
-   - `CORS_ALLOWED_ORIGINS` (default `http://localhost:3000`)
-   - `X_MAC_SECRET` / `NEXT_PUBLIC_X_MAC_SECRET` (same value on both — sent as
-     the `X-Mac` header on every frontend request, validated by the backend)
-   - `NEXT_PUBLIC_API_URL` (backend base URL for the frontend)
+1. Create a single `.env` file at the **repository root**
+   (`/Users/noel/Documents/Orders/.env` — the same folder as `main.py` and
+   `requirements.txt`, one level *above* `frontend/`). This one file is the
+   **single source of truth** for every env var, backend and frontend alike —
+   there is no separate `frontend/.env.local`.
 
-   `frontend/next.config.js` reads the root `.env` directly at config-load
-   time and injects any `NEXT_PUBLIC_*` key into Next.js's `env` field — no
-   generated `.env.local` file, no `dotenv` dependency.
+   | Variable | Required | Default | Purpose |
+   |---|---|---|---|
+   | `DATABASE_URL` | Yes | — | Postgres connection string. For Supabase, use the **session pooler** URI from Project Settings → Database → Connect (the direct `db.*.supabase.co` host needs IPv6 and may not resolve on all networks). |
+   | `TEMPORAL_HOST` | Yes | — | Host:port of the Temporal server, e.g. `localhost:7233` for the local dev server. |
+   | `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key used for both the classifier (Haiku) and main agent (Sonnet). |
+   | `FASTAPI_PORT` | No | `8000` | Port the backend listens on. |
+   | `CORS_ALLOWED_ORIGINS` | No | `http://localhost:3000` | Comma-separated list of origins allowed to call the backend. |
+   | `X_MAC_SECRET` | No | `""` | Shared-secret value the backend requires on every request's `X-Mac` header. |
+   | `NEXT_PUBLIC_X_MAC_SECRET` | Yes (if `X_MAC_SECRET` is set) | — | Must be **identical** to `X_MAC_SECRET` — this is what the frontend actually sends. |
+   | `NEXT_PUBLIC_API_URL` | Yes | `http://localhost:8000` | Backend base URL the frontend calls. |
+
+   Only keys prefixed `NEXT_PUBLIC_` are exposed to the frontend/browser;
+   everything else (`DATABASE_URL`, `ANTHROPIC_API_KEY`, `X_MAC_SECRET`, etc.)
+   stays backend-only. `frontend/next.config.js` reads the root `.env`
+   directly at config-load time and injects any `NEXT_PUBLIC_*` key into
+   Next.js's `env` field — no generated `.env.local` file, no `dotenv`
+   dependency, and nothing to duplicate between backend and frontend.
 
 2. Start a local Temporal dev server:
    ```bash

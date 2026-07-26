@@ -1,4 +1,4 @@
-import { getRun } from "@/lib/api";
+import { getRun, getSupervisorConfig } from "@/lib/api";
 import BentoCard from "@/app/components/BentoCard";
 import StatusPill from "@/app/components/StatusPill";
 import ControlPanel from "@/app/components/ControlPanel";
@@ -12,6 +12,7 @@ import { MemoryIcon, ScheduleIcon, ShieldIcon } from "@/app/components/icons";
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const run = await getRun(id);
+  const supervisorConfig = await getSupervisorConfig(run.supervisor_config_id);
 
   return (
     <div className="flex flex-col gap-4">
@@ -59,7 +60,8 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
                     <h4 className="text-[10px] font-bold uppercase tracking-wide text-secondary mb-1">
                       Supervisor Config
                     </h4>
-                    <p className="text-xs font-mono text-on-surface">{run.supervisor_config_id}</p>
+                    <p className="text-sm text-on-surface">{supervisorConfig.name}</p>
+                    <p className="text-xs font-mono text-on-surface-variant">{run.supervisor_config_id}</p>
                   </div>
                   <ShieldIcon className="w-5 h-5 text-secondary" />
                 </div>

@@ -9,11 +9,6 @@ class ToolCall:
 
 
 @dataclass(frozen=True)
-class ClassifierResult:
-    should_wake: bool
-
-
-@dataclass(frozen=True)
 class AgentOutput:
     new_memory_summary: str
     tool_calls: tuple[ToolCall, ...] = field(default_factory=tuple)

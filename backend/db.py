@@ -128,6 +128,14 @@ async def get_supervisor_config(config_id: str) -> dict | None:
     return _row_with_str_id(row) if row else None
 
 
+async def list_supervisor_configs() -> list[dict]:
+    pool = get_pool()
+    rows = await pool.fetch(
+        "SELECT id, name, description, extra_instructions, created_at FROM supervisor_configs ORDER BY created_at DESC"
+    )
+    return [_row_with_str_id(row) for row in rows]
+
+
 async def insert_order_run(run_id: str, order_id: str, supervisor_config_id: str) -> dict:
     pool = get_pool()
     row = await pool.fetchrow(

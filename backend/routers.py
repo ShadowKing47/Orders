@@ -49,6 +49,12 @@ async def create_supervisor_config(payload: CreateSupervisorConfigRequest) -> Su
     return SupervisorConfigResponse(**row)
 
 
+@router.get("/supervisors", response_model=list[SupervisorConfigResponse])
+async def list_supervisor_configs() -> list[SupervisorConfigResponse]:
+    rows = await db.list_supervisor_configs()
+    return [SupervisorConfigResponse(**row) for row in rows]
+
+
 @router.get("/supervisors/{config_id}", response_model=SupervisorConfigResponse)
 async def get_supervisor_config(config_id: str) -> SupervisorConfigResponse:
     row = await db.get_supervisor_config(config_id)

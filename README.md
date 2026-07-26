@@ -4,6 +4,10 @@ An AI-supervised order management POC. A Temporal workflow orchestrates a fast
 classifier and a capable main agent (both backed by Claude) to monitor orders,
 react to events, and decide when to sleep, act, or terminate.
 
+The orchestrator is **`backend/workflows.py`** (`OrderSupervisorWorkflow`) — see
+`documentation.md` for a full file-by-file breakdown, the stack, and the
+optimizations applied.
+
 ## Architecture
 
 - **`main.py`** — FastAPI server + two Temporal workers in one process:
@@ -12,11 +16,13 @@ react to events, and decide when to sleep, act, or terminate.
   - CORS middleware (`CORS_ALLOWED_ORIGINS`) and an `X-Mac` shared-secret
     header gate (`X_MAC_SECRET`) sit in front of every route.
 - **`backend/workflows.py`** — `OrderSupervisorWorkflow`, a deterministic state
-  machine. No I/O, no `anthropic`/`asyncpg`/`datetime.now()` imports.
+  machine and the system's orchestrator. No I/O, no `anthropic`/`asyncpg`/
+  `datetime.now()` imports.
   - The workflow is the sole source of truth for run status. Signal handlers
-    (`pause_workflow`, `resume_workflow`) only mutate state and set a pending
-    flag; the main loop is the only place that executes the persistence
-    Activity, keeping Temporal's event history a clean sequential trace.
+    (`pause_workflow`, `resume_workflow`, `terminate_workflow`) only mutate
+    state and set a pending flag; the main loop is the only place that
+    executes the persistence Activity, keeping Temporal's event history a
+    clean sequential trace.
   - Guards against Temporal's ~50k-event history limit via a plain
     `event_count` counter that triggers `continue_as_new` past a threshold,
     carrying memory/wake-up-time/instructions forward transparently.
@@ -29,7 +35,11 @@ react to events, and decide when to sleep, act, or terminate.
 - **`backend/db.py`** — asyncpg pool against Supabase/Postgres. Never imported
   by `workflows.py`.
 - **`frontend/`** — Next.js App Router UI: create supervisor configs, start
-  runs, inject events, add instructions, pause/resume/terminate.
+  runs, inject events, add instructions, pause/resume/terminate, and view a
+  run's memory, timeline, and final summary. A client-side poller
+  (`RunPoller.tsx`) refreshes the page automatically when a run's status
+  changes in the background (e.g. a scheduled wake-up), without spamming the
+  server when nothing has changed.
 
 ## Prerequisites
 
@@ -95,12 +105,14 @@ docker run --env-file .env -p 8000:8000 order-supervisor
 
 See `backend/routers.py` for the full route list: supervisor config CRUD, run
 lifecycle (`start`, `events`, `instructions`, `interrupt`, `resume`,
-`terminate`), and run listing/detail. Every request must carry an `X-Mac`
-header matching `X_MAC_SECRET`, or the backend rejects it with 401.
+`terminate`), run listing/detail, run event history, and final-output
+retrieval. Every request must carry an `X-Mac` header matching
+`X_MAC_SECRET`, or the backend rejects it with 401.
 
 ## Further reading
 
-`trash/implementation.md` documents the system in depth — every module,
-every deliberate deviation from the original spec (and why), and what was
-verified against live Temporal/Supabase/Anthropic infrastructure rather than
-just typechecked.
+- **`documentation.md`** — project overview, full stack, a file-by-file map of
+  what does what, and every deliberate optimization applied (idempotency,
+  dynamic tool injection, dead-man's-switch classifier bypass, instruction
+  consolidation with a cheap local-join threshold, per-queue activity
+  concurrency caps, smart client-side polling, and more).

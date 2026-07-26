@@ -52,7 +52,11 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
                       Next Wake Up
                     </h4>
                     <p className="text-sm text-on-surface">
-                      {run.next_wake_up_at ? new Date(run.next_wake_up_at).toLocaleString() : "—"}
+                      {run.status === "COMPLETED" || run.status === "TERMINATED"
+                        ? "—"
+                        : run.next_wake_up_at
+                          ? new Date(run.next_wake_up_at).toLocaleString()
+                          : "—"}
                     </p>
                   </div>
                   <ScheduleIcon className="w-5 h-5 text-on-surface" />

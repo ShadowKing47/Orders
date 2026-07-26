@@ -7,6 +7,7 @@ import InstructionAdder from "@/app/components/InstructionAdder";
 import MemorySummary from "@/app/components/MemorySummary";
 import Timeline from "@/app/components/Timeline";
 import FinalSummary from "@/app/components/FinalSummary";
+import RunPoller from "@/app/components/RunPoller";
 import { MemoryIcon, ScheduleIcon, ShieldIcon } from "@/app/components/icons";
 
 export default async function RunDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -16,6 +17,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
 
   return (
     <div className="flex flex-col gap-4">
+      <RunPoller runId={run.run_id} currentStatus={run.status} />
       <div className="flex items-center gap-3">
         <h1 className="text-xl font-semibold text-on-surface">Order #{run.order_id}</h1>
         <StatusPill status={run.status} />

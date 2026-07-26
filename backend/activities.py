@@ -3,7 +3,7 @@
 import asyncio
 import json
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from temporalio import activity
 
@@ -184,7 +184,7 @@ async def compact_memory(memory: str, new_events: list[dict], run_id: str, idemp
     new_summary = await _run_with_heartbeat(
         agents.compact_memory(settings.ANTHROPIC_API_KEY, settings.MAIN_AGENT_MODEL, history)
     )
-    await persist_event(run_id, EventType.MEMORY_COMPACTED, {"summary": new_summary}, idempotency_key)
+    await db.persist_event(run_id, EventType.MEMORY_COMPACTED, {"summary": new_summary}, idempotency_key)
     return new_summary
 
 
@@ -226,11 +226,6 @@ async def execute_tool(tool_name: str, params: dict, run_id: str, idempotency_ke
         idempotency_key,
     )
     return result_text
-
-
-@activity.defn
-async def persist_event(run_id: str, event_type: EventType, payload: dict, idempotency_key: str) -> None:
-    await db.persist_event(run_id, event_type, payload, idempotency_key)
 
 
 @activity.defn

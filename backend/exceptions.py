@@ -2,10 +2,6 @@ class OrderSupervisorError(Exception):
     """Base class for all application-specific errors in this system."""
 
 
-class WorkflowError(OrderSupervisorError):
-    """Raised for errors originating in workflow-level orchestration logic."""
-
-
 class DatabaseError(OrderSupervisorError):
     """Raised for errors originating from db.py operations."""
 

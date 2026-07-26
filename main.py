@@ -22,7 +22,6 @@ _LLM_TASK_ACTIVITIES = [
     activities.consolidate_instructions,
     activities.generate_final_output,
     activities.execute_tool,
-    activities.persist_event,
     activities.update_run_state,
 ]
 

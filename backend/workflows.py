@@ -22,6 +22,7 @@ _FAST_TASK_QUEUE = "fast-tasks"
 _MAX_EVENT_COUNT_BEFORE_CONTINUE = 4000  # buffer well below Temporal's ~50k event-history limit
 _CLASSIFIER_BYPASS_BACKLOG_THRESHOLD = 5  # dead-man's switch against a stuck-on-NO classifier
 _INSTRUCTION_CONSOLIDATION_THRESHOLD = 3  # batch new instructions before paying for an LLM merge
+_INSTRUCTION_LLM_CONSOLIDATION_MIN_CHARS = 500  # below this, a plain local join is cheaper and just as correct
 
 
 @dataclass
@@ -135,13 +136,19 @@ class OrderSupervisorWorkflow:
         )
 
     async def _consolidate_pending_instructions(self, idempotency_prefix: str) -> None:
-        self.standing_orders = await workflow.execute_activity(
-            activities.consolidate_instructions,
-            args=[self.standing_orders, self.pending_instructions, idempotency_prefix],
-            start_to_close_timeout=_ACTIVITY_START_TO_CLOSE_TIMEOUT,
-            heartbeat_timeout=_ACTIVITY_HEARTBEAT_TIMEOUT,
-            retry_policy=_DEFAULT_RETRY_POLICY,
-        )
+        pending_text = "\n".join(self.pending_instructions)
+        if len(pending_text) > _INSTRUCTION_LLM_CONSOLIDATION_MIN_CHARS:
+            self.standing_orders = await workflow.execute_activity(
+                activities.consolidate_instructions,
+                args=[self.standing_orders, self.pending_instructions, idempotency_prefix],
+                start_to_close_timeout=_ACTIVITY_START_TO_CLOSE_TIMEOUT,
+                heartbeat_timeout=_ACTIVITY_HEARTBEAT_TIMEOUT,
+                retry_policy=_DEFAULT_RETRY_POLICY,
+            )
+        else:
+            # Short enough that an LLM merge/conflict-resolution pass isn't worth paying for —
+            # a plain local join covers it just as well.
+            self.standing_orders = f"{self.standing_orders}\n{pending_text}" if self.standing_orders else pending_text
         self.pending_instructions = []
         self.event_count += 1
 

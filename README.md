@@ -10,6 +10,27 @@ optimizations applied.
 
 ## Architecture
 
+**Short version:** the Next.js frontend never talks to Temporal directly — it
+only calls the FastAPI backend over HTTP. FastAPI starts one Temporal
+workflow per order and, after that, only sends it signals (inject an event,
+add an instruction, pause/resume/terminate) or reads its persisted state back
+from Postgres. The workflow itself (`OrderSupervisorWorkflow`) is the
+orchestrator: it decides when to wake, classifies events through a cheap
+Haiku model before bothering the slower Sonnet-based main agent, dispatches
+every LLM call/DB write/tool execution as a Temporal Activity, and writes its
+status and memory back to Postgres so the API/UI can read it without going
+through Temporal at all.
+
+```
+Browser (Next.js) --HTTP--> FastAPI (routers.py) --signals/start--> Temporal workflow (workflows.py)
+                                  |                                         |
+                                  |                                  execute_activity
+                                  v                                         v
+                              Postgres  <---------- writes ---------  Activities (activities.py)
+                                                                            |
+                                                                     Anthropic (agents.py)
+```
+
 - **`main.py`** — FastAPI server + two Temporal workers in one process:
   - `fast-tasks` queue: the lightweight event classifier.
   - `llm-tasks` queue: the main agent, memory compaction, and all DB writes.

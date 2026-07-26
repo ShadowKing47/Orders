@@ -1,5 +1,6 @@
 import { listRunEvents } from "@/lib/api";
 import { HistoryIcon } from "@/app/components/icons";
+import TimelineEntry from "@/app/components/TimelineEntry";
 
 const EVENT_LABELS: Record<string, string> = {
   tool_executed: "Tool executed",
@@ -9,12 +10,20 @@ const EVENT_LABELS: Record<string, string> = {
   order_event: "Order event",
 };
 
-function summarizePayload(payload: Record<string, unknown>): string {
+function summarizePayload(eventType: string, payload: Record<string, unknown>): string {
+  if (eventType === "tool_executed" && typeof payload.tool_name === "string") {
+    return payload.tool_name;
+  }
+  if (eventType === "memory_compacted") {
+    const text = payload.final_summary ?? payload.summary;
+    if (typeof text === "string") return text;
+  }
+
   const entries = Object.entries(payload);
   if (entries.length === 0) return "";
   return entries
     .slice(0, 3)
-    .map(([key, value]) => `${key}: ${String(value)}`)
+    .map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`)
     .join(", ");
 }
 
@@ -34,21 +43,12 @@ export default async function Timeline({ runId }: { runId: string }) {
   return (
     <ul className="flex flex-col divide-y divide-outline-variant max-h-72 overflow-auto">
       {events.map((event) => (
-        <li key={event.id} className="py-2.5 first:pt-0 last:pb-0">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-on-surface">
-              {EVENT_LABELS[event.event_type] ?? event.event_type}
-            </span>
-            <span className="text-[10px] font-mono text-on-surface-variant whitespace-nowrap">
-              {new Date(event.created_at).toLocaleTimeString()}
-            </span>
-          </div>
-          {summarizePayload(event.payload) && (
-            <p className="text-[11px] font-mono text-on-surface-variant mt-0.5 truncate">
-              {summarizePayload(event.payload)}
-            </p>
-          )}
-        </li>
+        <TimelineEntry
+          key={event.id}
+          label={EVENT_LABELS[event.event_type] ?? event.event_type}
+          time={new Date(event.created_at).toLocaleTimeString()}
+          detail={summarizePayload(event.event_type, event.payload)}
+        />
       ))}
     </ul>
   );

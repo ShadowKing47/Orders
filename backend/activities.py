@@ -12,6 +12,7 @@ from config import get_settings
 from backend.exceptions import AgentParsingError
 from backend.models.activity_io import AgentOutput, ToolCall
 from backend.models.enums import EventType, RunStatus
+from backend.models.tools import all_tool_schemas, scheduled_check_in_tool_schemas
 
 _HEARTBEAT_INTERVAL_SECONDS = 10
 
@@ -109,6 +110,11 @@ async def run_main_agent(
     next_wake_up_duration_seconds: int | None = None
     is_terminal = False
 
+    # Empty-check-in guard: an agent woken on schedule with no new events must not be
+    # handed customer-facing/escalation tools, or it's liable to hallucinate a reason to
+    # use one just because it's available. Only offer schedule_next_wake_up in that case.
+    tool_schemas = all_tool_schemas() if events else scheduled_check_in_tool_schemas()
+
     # Agentic tool loop: keep calling the main agent until it stops requesting tools.
     for _ in range(10):  # hard safety cap on loop iterations
         try:
@@ -119,6 +125,7 @@ async def run_main_agent(
                     memory,
                     events,
                     instructions,
+                    tool_schemas,
                     tool_results,
                     prior_assistant_content,
                 )
@@ -182,12 +189,24 @@ async def compact_memory(memory: str, new_events: list[dict], run_id: str, idemp
 
 
 @activity.defn
+async def consolidate_instructions(
+    current_standing_orders: str, new_instructions: list[str], idempotency_key: str
+) -> str:
+    settings = get_settings()
+    return await _run_with_heartbeat(
+        agents.consolidate_instructions(
+            settings.ANTHROPIC_API_KEY, settings.MAIN_AGENT_MODEL, current_standing_orders, new_instructions
+        )
+    )
+
+
+@activity.defn
 async def generate_final_output(memory: str, run_id: str, idempotency_key: str) -> None:
     settings = get_settings()
     if await db.event_exists(idempotency_key):
         return
     summary = await _run_with_heartbeat(
-        agents.compact_memory(settings.ANTHROPIC_API_KEY, settings.MAIN_AGENT_MODEL, [{"final_memory": memory}])
+        agents.generate_final_summary(settings.ANTHROPIC_API_KEY, settings.MAIN_AGENT_MODEL, memory)
     )
     await db.insert_final_output(run_id, summary)
     await db.persist_event(run_id, EventType.MEMORY_COMPACTED, {"final_summary": summary}, idempotency_key)

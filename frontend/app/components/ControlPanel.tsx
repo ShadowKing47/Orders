@@ -21,28 +21,31 @@ export default function ControlPanel({ runId, status }: { runId: string; status:
   }
 
   return (
-    <div className="border rounded-md bg-white p-4 flex gap-3">
-      <button
-        onClick={() => handle(() => interruptRun(runId))}
-        disabled={isSubmitting || isTerminal || status === "PAUSED"}
-        className="text-sm px-3 py-1.5 rounded border disabled:opacity-40"
-      >
-        Pause
-      </button>
-      <button
-        onClick={() => handle(() => resumeRun(runId))}
-        disabled={isSubmitting || isTerminal || status !== "PAUSED"}
-        className="text-sm px-3 py-1.5 rounded border disabled:opacity-40"
-      >
-        Resume
-      </button>
-      <button
-        onClick={() => handle(() => terminateRun(runId))}
-        disabled={isSubmitting || isTerminal}
-        className="text-sm px-3 py-1.5 rounded border border-red-300 text-red-700 disabled:opacity-40"
-      >
-        Terminate
-      </button>
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <p className="text-xs text-on-surface-variant">Emergency state management controls</p>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => handle(() => interruptRun(runId))}
+          disabled={isSubmitting || isTerminal || status === "PAUSED"}
+          className="px-5 py-2 border border-outline-variant text-secondary rounded text-[11px] font-bold uppercase tracking-wide hover:bg-surface-container transition-colors disabled:opacity-40"
+        >
+          Pause
+        </button>
+        <button
+          onClick={() => handle(() => resumeRun(runId))}
+          disabled={isSubmitting || isTerminal || status !== "PAUSED"}
+          className="px-5 py-2 border border-outline-variant text-secondary rounded text-[11px] font-bold uppercase tracking-wide hover:bg-surface-container transition-colors disabled:opacity-40"
+        >
+          Resume
+        </button>
+        <button
+          onClick={() => handle(() => terminateRun(runId))}
+          disabled={isSubmitting || isTerminal}
+          className="px-5 py-2 border border-error bg-error-container text-error rounded text-[11px] font-bold uppercase tracking-wide hover:bg-error hover:text-white transition-all disabled:opacity-40"
+        >
+          Terminate
+        </button>
+      </div>
     </div>
   );
 }

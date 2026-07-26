@@ -123,3 +123,16 @@ TOOL_REGISTRY: dict[str, type[BaseTool]] = {
 
 def all_tool_schemas() -> list[dict]:
     return [tool_cls.to_anthropic_schema() for tool_cls in TOOL_REGISTRY.values()]
+
+
+def scheduled_check_in_tool_schemas() -> list[dict]:
+    """Tool set for a scheduled wake-up with no new events to act on.
+
+    Deliberately excludes customer-facing/escalation tools: handing the full
+    tool set to an LLM woken up with nothing to react to invites it to
+    hallucinate a reason to act (e.g. sending an unprompted customer
+    message) purely because tools are available and models are biased
+    toward action. Only schedule_next_wake_up is offered, so the only thing
+    the agent can do on an empty check-in is decide when to check again.
+    """
+    return [ScheduleNextWakeUpTool.to_anthropic_schema()]

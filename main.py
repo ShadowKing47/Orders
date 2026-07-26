@@ -19,6 +19,7 @@ _FAST_TASK_ACTIVITIES = [activities.run_classifier]
 _LLM_TASK_ACTIVITIES = [
     activities.run_main_agent,
     activities.compact_memory,
+    activities.consolidate_instructions,
     activities.generate_final_output,
     activities.execute_tool,
     activities.persist_event,
@@ -34,12 +35,22 @@ async def _run_workers(client: Client) -> None:
         task_queue=settings.FAST_TASK_QUEUE,
         workflows=[],
         activities=_FAST_TASK_ACTIVITIES,
+        # Haiku (the classifier model) is faster and has higher rate limits than the
+        # main-agent model, so this queue can tolerate more concurrent Anthropic calls.
+        max_concurrent_activities=settings.FAST_TASK_MAX_CONCURRENT_ACTIVITIES,
     )
     llm_worker = Worker(
         client,
         task_queue=settings.LLM_TASK_QUEUE,
         workflows=[OrderSupervisorWorkflow],
         activities=_LLM_TASK_ACTIVITIES,
+        # Caps how many run_main_agent/compact_memory/etc. activities execute at once on
+        # this worker. Without this, a burst of events across many orders (e.g. 100 orders
+        # all hitting payment_failed at once) would let Temporal fan out unboundedly and
+        # slam the Anthropic API with concurrent requests, triggering a 429 thundering herd
+        # as everything backs off and retries around the same time. Temporal queues the
+        # excess work in memory instead of ever sending it to Anthropic.
+        max_concurrent_activities=settings.LLM_TASK_MAX_CONCURRENT_ACTIVITIES,
     )
 
     await asyncio.gather(fast_worker.run(), llm_worker.run())

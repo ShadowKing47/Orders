@@ -18,6 +18,8 @@ class Settings(BaseSettings):
 
     FAST_TASK_QUEUE: str = "fast-tasks"
     LLM_TASK_QUEUE: str = "llm-tasks"
+    FAST_TASK_MAX_CONCURRENT_ACTIVITIES: int = 20
+    LLM_TASK_MAX_CONCURRENT_ACTIVITIES: int = 8
 
     @property
     def cors_allowed_origins_list(self) -> list[str]:

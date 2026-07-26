@@ -13,10 +13,11 @@ from backend.models.api import (
     CreateSupervisorConfigRequest,
     InjectEventRequest,
     InstructionRequest,
+    RunEventResponse,
+    RunFinalOutputResponse,
     RunResponse,
     SupervisorConfigResponse,
 )
-from backend.models.enums import RunStatus
 from backend.workflows import OrderSupervisorWorkflow, OrderSupervisorWorkflowInput
 from config import get_settings
 
@@ -104,14 +105,44 @@ async def get_run(run_id: str) -> RunResponse:
     return RunResponse(**row)
 
 
+@router.get("/runs/{run_id}/events", response_model=list[RunEventResponse])
+async def list_run_events(run_id: str) -> list[RunEventResponse]:
+    rows = await db.list_run_events(run_id)
+    return [RunEventResponse(**row) for row in rows]
+
+
+@router.get("/runs/{run_id}/final-output", response_model=RunFinalOutputResponse | None)
+async def get_run_final_output(run_id: str) -> RunFinalOutputResponse | None:
+    row = await db.get_final_output(run_id)
+    return RunFinalOutputResponse(**row) if row else None
+
+
 def _get_handle(client: Client, run_id: str):
     return client.get_workflow_handle(run_id)
+
+
+async def _signal_or_409(handle, *signal_args) -> None:
+    """Sends a workflow signal, converting "already completed/not found" into a clean 409.
+
+    A signal to a workflow that already ended (naturally, or from a prior
+    terminate) raises temporalio's RPCError uncaught otherwise — which
+    FastAPI has no handler for, so it 500s. Worse, that 500 originates
+    inside the X-Mac middleware's BaseHTTPMiddleware wrapper, which
+    re-raises before CORSMiddleware can attach CORS headers to the error
+    response, so browsers report it as an opaque "Failed to fetch" instead
+    of a real HTTP error — hard to diagnose from the frontend alone.
+    """
+    try:
+        await handle.signal(*signal_args)
+    except RPCError as exc:
+        raise HTTPException(status_code=409, detail="Run has already ended; cannot send further signals.") from exc
 
 
 @router.post("/runs/{run_id}/events")
 async def inject_event(run_id: str, payload: InjectEventRequest, client: TemporalClientDep) -> dict:
     handle = _get_handle(client, run_id)
-    await handle.signal(
+    await _signal_or_409(
+        handle,
         OrderSupervisorWorkflow.inject_event,
         {"event_type": payload.event_type, "payload": payload.payload},
     )
@@ -121,7 +152,7 @@ async def inject_event(run_id: str, payload: InjectEventRequest, client: Tempora
 @router.post("/runs/{run_id}/instructions")
 async def add_instruction(run_id: str, payload: InstructionRequest, client: TemporalClientDep) -> dict:
     handle = _get_handle(client, run_id)
-    await handle.signal(OrderSupervisorWorkflow.add_instruction, payload.instruction)
+    await _signal_or_409(handle, OrderSupervisorWorkflow.add_instruction, payload.instruction)
     return {"status": "signaled"}
 
 
@@ -138,24 +169,25 @@ async def interrupt_run(run_id: str, client: TemporalClientDep) -> dict:
     # The router only forwards the signal — it must not write status here, or a delayed/lost
     # signal would leave the DB showing PAUSED while the workflow keeps running (split-brain).
     handle = _get_handle(client, run_id)
-    await handle.signal(OrderSupervisorWorkflow.pause_workflow)
+    await _signal_or_409(handle, OrderSupervisorWorkflow.pause_workflow)
     return {"status": "paused"}
 
 
 @router.post("/runs/{run_id}/resume")
 async def resume_run(run_id: str, client: TemporalClientDep) -> dict:
     handle = _get_handle(client, run_id)
-    await handle.signal(OrderSupervisorWorkflow.resume_workflow)
+    await _signal_or_409(handle, OrderSupervisorWorkflow.resume_workflow)
     return {"status": "resumed"}
 
 
 @router.post("/runs/{run_id}/terminate")
 async def terminate_run(run_id: str, client: TemporalClientDep) -> dict:
-    # Exception to "workflow is the source of truth": terminate() forcefully kills the workflow,
-    # which cannot run an activity to persist its own final state. This DB write is a best-effort
-    # projection of that termination, not an independent source of truth.
-    run = await _current_run_or_404(run_id)
+    # Graceful stop via signal, not handle.terminate() (a hard external kill that gives the
+    # workflow zero chance to run more code). Signaling terminate_workflow lets the workflow
+    # exit its own loop naturally and still reach generate_final_output, so every path that
+    # ends a run — agent-driven completion or a human clicking Terminate — produces a final
+    # summary. The workflow persists TERMINATED itself (source of truth); no DB write here.
+    await _current_run_or_404(run_id)
     handle = _get_handle(client, run_id)
-    await handle.terminate()
-    await db.update_run_state(run_id, RunStatus.TERMINATED, run["memory_summary"], None)
+    await _signal_or_409(handle, OrderSupervisorWorkflow.terminate_workflow)
     return {"status": "terminated"}

@@ -49,3 +49,17 @@ class InjectEventRequest(BaseModel):
 
 class InstructionRequest(BaseModel):
     instruction: str = Field(..., min_length=1, max_length=2000)
+
+
+class RunEventResponse(BaseModel):
+    id: str
+    run_id: str
+    event_type: str
+    payload: dict
+    created_at: datetime
+
+
+class RunFinalOutputResponse(BaseModel):
+    run_id: str
+    summary: str
+    created_at: datetime

@@ -217,6 +217,21 @@ async def persist_event(
     )
 
 
+async def list_run_events(run_id: str, limit: int = 50) -> list[dict]:
+    pool = get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT id, run_id, event_type, payload, created_at
+        FROM run_events WHERE run_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+        """,
+        run_id,
+        limit,
+    )
+    return [_row_with_str_id(row) for row in rows]
+
+
 async def insert_final_output(run_id: str, summary: str) -> None:
     pool = get_pool()
     await pool.execute(
@@ -228,3 +243,12 @@ async def insert_final_output(run_id: str, summary: str) -> None:
         run_id,
         summary,
     )
+
+
+async def get_final_output(run_id: str) -> dict | None:
+    pool = get_pool()
+    row = await pool.fetchrow(
+        "SELECT run_id, summary, created_at FROM run_final_outputs WHERE run_id = $1",
+        run_id,
+    )
+    return dict(row) if row else None

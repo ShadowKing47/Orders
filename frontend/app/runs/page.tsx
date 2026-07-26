@@ -1,42 +1,40 @@
 import Link from "next/link";
 import { listRuns, listSupervisorConfigs } from "@/lib/api";
 import CreateRunForm from "@/app/components/CreateRunForm";
-
-const STATUS_COLORS: Record<string, string> = {
-  RUNNING: "bg-blue-100 text-blue-800",
-  SLEEPING: "bg-gray-100 text-gray-700",
-  COMPLETED: "bg-green-100 text-green-800",
-  TERMINATED: "bg-red-100 text-red-800",
-  PAUSED: "bg-yellow-100 text-yellow-800",
-};
+import BentoCard from "@/app/components/BentoCard";
+import StatusPill from "@/app/components/StatusPill";
+import { PackageIcon } from "@/app/components/icons";
 
 export default async function RunsPage() {
   const [runs, configs] = await Promise.all([listRuns(), listSupervisorConfigs()]);
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-xl font-semibold mb-4">Runs</h1>
-        <ul className="space-y-2">
+    <div className="flex flex-col gap-6">
+      <h1 className="text-xl font-semibold text-on-surface">Runs</h1>
+
+      <BentoCard title="Active & Completed Runs">
+        <ul className="flex flex-col divide-y divide-outline-variant">
           {runs.map((run) => (
-            <li key={run.run_id} className="border rounded-md bg-white p-4 flex items-center justify-between">
-              <div>
-                <Link href={`/runs/${run.run_id}`} className="font-medium hover:underline">
-                  {run.order_id}
-                </Link>
-                <p className="text-xs text-gray-500">{run.run_id}</p>
+            <li key={run.run_id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+              <div className="flex items-center gap-3">
+                <PackageIcon className="w-4 h-4 text-secondary" />
+                <div>
+                  <Link href={`/runs/${run.run_id}`} className="text-sm font-medium text-on-surface hover:underline">
+                    {run.order_id}
+                  </Link>
+                  <p className="text-xs font-mono text-on-surface-variant">{run.run_id}</p>
+                </div>
               </div>
-              <span className={`text-xs px-2 py-1 rounded ${STATUS_COLORS[run.status] ?? ""}`}>{run.status}</span>
+              <StatusPill status={run.status} />
             </li>
           ))}
-          {runs.length === 0 && <p className="text-sm text-gray-500">No runs yet.</p>}
+          {runs.length === 0 && <p className="text-sm text-on-surface-variant py-2">No runs yet.</p>}
         </ul>
-      </div>
+      </BentoCard>
 
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Start New Run</h2>
+      <BentoCard title="Start New Run">
         <CreateRunForm supervisorConfigs={configs} />
-      </div>
+      </BentoCard>
     </div>
   );
 }

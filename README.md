@@ -9,11 +9,23 @@ react to events, and decide when to sleep, act, or terminate.
 - **`main.py`** — FastAPI server + two Temporal workers in one process:
   - `fast-tasks` queue: the lightweight event classifier.
   - `llm-tasks` queue: the main agent, memory compaction, and all DB writes.
+  - CORS middleware (`CORS_ALLOWED_ORIGINS`) and an `X-Mac` shared-secret
+    header gate (`X_MAC_SECRET`) sit in front of every route.
 - **`backend/workflows.py`** — `OrderSupervisorWorkflow`, a deterministic state
   machine. No I/O, no `anthropic`/`asyncpg`/`datetime.now()` imports.
+  - The workflow is the sole source of truth for run status. Signal handlers
+    (`pause_workflow`, `resume_workflow`) only mutate state and set a pending
+    flag; the main loop is the only place that executes the persistence
+    Activity, keeping Temporal's event history a clean sequential trace.
+  - Guards against Temporal's ~50k-event history limit via a plain
+    `event_count` counter that triggers `continue_as_new` past a threshold,
+    carrying memory/wake-up-time/instructions forward transparently.
 - **`backend/activities.py`** — all side effects (LLM calls, DB writes, tool
   execution), each activity idempotent via a caller-supplied idempotency key.
-- **`backend/agents.py`** — Anthropic SDK calls. Never touches the database.
+  Heartbeats while awaiting LLM calls; cancellation propagates natively since
+  `agents.py` uses `AsyncAnthropic` (no background thread to leak).
+- **`backend/agents.py`** — Anthropic SDK calls via the async client. Never
+  touches the database.
 - **`backend/db.py`** — asyncpg pool against Supabase/Postgres. Never imported
   by `workflows.py`.
 - **`frontend/`** — Next.js App Router UI: create supervisor configs, start
@@ -32,12 +44,17 @@ react to events, and decide when to sleep, act, or terminate.
 
 ## Setup
 
-1. Copy your credentials into the root `.env` (see `.env` for the expected
-   keys: `DATABASE_URL`, `TEMPORAL_HOST`, `ANTHROPIC_API_KEY`, `FASTAPI_PORT`).
-   Also set `NEXT_PUBLIC_API_URL` there — `frontend/load-env.js` reads it out
-   of the root `.env` and writes `frontend/.env.local` before each
-   `next dev`/`next build`, so there is still only one source of truth for env
-   vars even though Next.js requires its own `.env.local`.
+1. Copy your credentials into the root `.env` — this is the **single source
+   of truth** for every env var, backend and frontend alike:
+   - `DATABASE_URL`, `TEMPORAL_HOST`, `ANTHROPIC_API_KEY`, `FASTAPI_PORT`
+   - `CORS_ALLOWED_ORIGINS` (default `http://localhost:3000`)
+   - `X_MAC_SECRET` / `NEXT_PUBLIC_X_MAC_SECRET` (same value on both — sent as
+     the `X-Mac` header on every frontend request, validated by the backend)
+   - `NEXT_PUBLIC_API_URL` (backend base URL for the frontend)
+
+   `frontend/next.config.js` reads the root `.env` directly at config-load
+   time and injects any `NEXT_PUBLIC_*` key into Next.js's `env` field — no
+   generated `.env.local` file, no `dotenv` dependency.
 
 2. Start a local Temporal dev server:
    ```bash
@@ -61,6 +78,8 @@ react to events, and decide when to sleep, act, or terminate.
    ```
    Visit `http://localhost:3000`.
 
+See `run.txt` for a more detailed, copy-pasteable walkthrough.
+
 ## Docker
 
 The `Dockerfile` builds and runs the backend only (`python main.py`). For fast
@@ -76,4 +95,12 @@ docker run --env-file .env -p 8000:8000 order-supervisor
 
 See `backend/routers.py` for the full route list: supervisor config CRUD, run
 lifecycle (`start`, `events`, `instructions`, `interrupt`, `resume`,
-`terminate`), and run listing/detail.
+`terminate`), and run listing/detail. Every request must carry an `X-Mac`
+header matching `X_MAC_SECRET`, or the backend rejects it with 401.
+
+## Further reading
+
+`trash/implementation.md` documents the system in depth — every module,
+every deliberate deviation from the original spec (and why), and what was
+verified against live Temporal/Supabase/Anthropic infrastructure rather than
+just typechecked.

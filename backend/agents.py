@@ -26,8 +26,8 @@ def _load_prompt(name: str) -> str:
 
 
 @cached(cache=TTLCache(maxsize=8, ttl=_CLIENT_CACHE_TTL_SECONDS), key=lambda api_key: hashkey(api_key))
-def _get_client(api_key: str) -> anthropic.Anthropic:
-    return anthropic.Anthropic(api_key=api_key)
+def _get_client(api_key: str) -> anthropic.AsyncAnthropic:
+    return anthropic.AsyncAnthropic(api_key=api_key)
 
 
 def _raise_for_api_error(exc: anthropic.APIError) -> None:
@@ -38,11 +38,11 @@ def _raise_for_api_error(exc: anthropic.APIError) -> None:
     raise exc
 
 
-def run_classifier(api_key: str, model: str, event: str) -> bool:
+async def run_classifier(api_key: str, model: str, event: str) -> bool:
     prompt = _load_prompt("classifier.txt").format(event=event)
     client = _get_client(api_key)
     try:
-        response = client.messages.create(
+        response = await client.messages.create(
             model=model,
             max_tokens=8,
             messages=[{"role": "user", "content": prompt}],
@@ -60,7 +60,7 @@ def run_classifier(api_key: str, model: str, event: str) -> bool:
     return True
 
 
-def run_main_agent(
+async def run_main_agent(
     api_key: str,
     model: str,
     memory: str,
@@ -88,7 +88,7 @@ def run_main_agent(
 
     client = _get_client(api_key)
     try:
-        response = client.messages.create(
+        response = await client.messages.create(
             model=model,
             max_tokens=1024,
             tools=all_tool_schemas(),
@@ -106,11 +106,11 @@ def run_main_agent(
     return response.stop_reason, tool_calls
 
 
-def compact_memory(api_key: str, model: str, history: list[dict]) -> str:
+async def compact_memory(api_key: str, model: str, history: list[dict]) -> str:
     prompt = _load_prompt("compactor.txt").format(history=history)
     client = _get_client(api_key)
     try:
-        response = client.messages.create(
+        response = await client.messages.create(
             model=model,
             max_tokens=400,
             messages=[{"role": "user", "content": prompt}],

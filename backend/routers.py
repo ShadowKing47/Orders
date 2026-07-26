@@ -134,10 +134,11 @@ async def _current_run_or_404(run_id: str) -> dict:
 
 @router.post("/runs/{run_id}/interrupt")
 async def interrupt_run(run_id: str, client: TemporalClientDep) -> dict:
-    run = await _current_run_or_404(run_id)
+    # The workflow itself persists PAUSED via pause_workflow's signal handler (source of truth).
+    # The router only forwards the signal — it must not write status here, or a delayed/lost
+    # signal would leave the DB showing PAUSED while the workflow keeps running (split-brain).
     handle = _get_handle(client, run_id)
     await handle.signal(OrderSupervisorWorkflow.pause_workflow)
-    await db.update_run_state(run_id, RunStatus.PAUSED, run["memory_summary"], run["next_wake_up_at"])
     return {"status": "paused"}
 
 
@@ -150,6 +151,9 @@ async def resume_run(run_id: str, client: TemporalClientDep) -> dict:
 
 @router.post("/runs/{run_id}/terminate")
 async def terminate_run(run_id: str, client: TemporalClientDep) -> dict:
+    # Exception to "workflow is the source of truth": terminate() forcefully kills the workflow,
+    # which cannot run an activity to persist its own final state. This DB write is a best-effort
+    # projection of that termination, not an independent source of truth.
     run = await _current_run_or_404(run_id)
     handle = _get_handle(client, run_id)
     await handle.terminate()

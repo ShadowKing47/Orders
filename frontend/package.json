@@ -3,9 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "node load-env.js",
     "dev": "next dev",
-    "prebuild": "node load-env.js",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

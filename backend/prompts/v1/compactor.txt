@@ -1,0 +1,1 @@
+Summarize the following order history into a concise memory block, retaining key facts (dates, issues, resolutions). Max 200 words. History: {history}

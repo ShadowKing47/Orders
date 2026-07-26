@@ -1,0 +1,1 @@
+You are a fast event classifier. Given the following order event, decide if it requires immediate AI supervisor intervention (e.g., payment failed, shipment delayed, customer complaint). Reply only with YES or NO. Event: {event}

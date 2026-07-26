@@ -1,0 +1,220 @@
+"""Temporal Activities: all side effects (DB writes, LLM calls, tool execution) live here."""
+
+import asyncio
+import json
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
+
+from temporalio import activity
+
+from backend import agents, db
+from config import get_settings
+from backend.exceptions import AgentParsingError
+from backend.models.activity_io import AgentOutput, ToolCall
+from backend.models.enums import EventType, RunStatus
+
+_HEARTBEAT_INTERVAL_SECONDS = 10
+
+
+@dataclass(frozen=True)
+class _MainAgentLoopState:
+    """Accumulator threaded through the tool-handling loop, replacing an if/elif chain with a dispatch table."""
+
+    result_text: str
+    next_wake_up_duration_seconds: int | None = None
+    is_terminal: bool = False
+
+
+async def _handle_schedule_next_wake_up(
+    tool_call: ToolCall, state: _MainAgentLoopState, run_id: str, idempotency_key: str
+) -> _MainAgentLoopState:
+    return replace(
+        state,
+        result_text="scheduled",
+        next_wake_up_duration_seconds=tool_call.tool_input.get("next_wake_up_duration_seconds"),
+    )
+
+
+async def _handle_mark_order_complete(
+    tool_call: ToolCall, state: _MainAgentLoopState, run_id: str, idempotency_key: str
+) -> _MainAgentLoopState:
+    return replace(
+        state,
+        result_text=f"order marked complete: {tool_call.tool_input.get('final_status')}",
+        is_terminal=True,
+    )
+
+
+async def _handle_generic_tool(
+    tool_call: ToolCall, state: _MainAgentLoopState, run_id: str, idempotency_key: str
+) -> _MainAgentLoopState:
+    result_text = await execute_tool(tool_call.tool_name, tool_call.tool_input, run_id, idempotency_key)
+    return replace(state, result_text=result_text)
+
+
+_TOOL_HANDLERS = {
+    "schedule_next_wake_up": _handle_schedule_next_wake_up,
+    "mark_order_complete": _handle_mark_order_complete,
+}
+
+
+async def _run_with_heartbeat(blocking_fn, *args) -> object:
+    """Runs a blocking (sync) LLM call in a thread while heartbeating periodically."""
+
+    task = asyncio.create_task(asyncio.to_thread(blocking_fn, *args))
+    while not task.done():
+        activity.heartbeat()
+        await asyncio.wait([task], timeout=_HEARTBEAT_INTERVAL_SECONDS)
+    return task.result()
+
+
+@activity.defn
+async def run_classifier(event: str, run_id: str, idempotency_key: str) -> bool:
+    settings = get_settings()
+    return await _run_with_heartbeat(
+        agents.run_classifier, settings.ANTHROPIC_API_KEY, settings.CLASSIFIER_MODEL, event
+    )
+
+
+def _tool_result_block(tool_call: ToolCall, result_text: str) -> dict:
+    return {"type": "tool_result", "tool_use_id": tool_call.tool_use_id, "content": result_text}
+
+
+def _assistant_content_from_tool_calls(tool_calls: list[ToolCall]) -> list[dict]:
+    return [
+        {"type": "tool_use", "id": tc.tool_use_id, "name": tc.tool_name, "input": tc.tool_input}
+        for tc in tool_calls
+    ]
+
+
+@activity.defn
+async def run_main_agent(
+    memory: str,
+    events: list[dict],
+    instructions: list[str],
+    run_id: str,
+    idempotency_key: str,
+) -> AgentOutput:
+    settings = get_settings()
+
+    tool_results: list[dict] | None = None
+    prior_assistant_content: list[dict] | None = None
+    collected_tool_calls: list[ToolCall] = []
+    next_wake_up_duration_seconds: int | None = None
+    is_terminal = False
+
+    # Agentic tool loop: keep calling the main agent until it stops requesting tools.
+    for _ in range(10):  # hard safety cap on loop iterations
+        try:
+            stop_reason, tool_calls = await _run_with_heartbeat(
+                agents.run_main_agent,
+                settings.ANTHROPIC_API_KEY,
+                settings.MAIN_AGENT_MODEL,
+                memory,
+                events,
+                instructions,
+                tool_results,
+                prior_assistant_content,
+            )
+        except Exception as exc:
+            raise AgentParsingError(f"run_main_agent failed: {exc}") from exc
+
+        if stop_reason != "tool_use" or not tool_calls:
+            break
+
+        prior_assistant_content = _assistant_content_from_tool_calls(tool_calls)
+        tool_results = []
+        for tool_call in tool_calls:
+            collected_tool_calls.append(tool_call)
+            handler = _TOOL_HANDLERS.get(tool_call.tool_name, _handle_generic_tool)
+            loop_state = await handler(
+                tool_call,
+                _MainAgentLoopState(result_text=""),
+                run_id,
+                f"{idempotency_key}:{tool_call.tool_use_id}",
+            )
+            if loop_state.next_wake_up_duration_seconds is not None:
+                next_wake_up_duration_seconds = loop_state.next_wake_up_duration_seconds
+            if loop_state.is_terminal:
+                is_terminal = True
+            tool_results.append(_tool_result_block(tool_call, loop_state.result_text))
+
+        if is_terminal:
+            break
+
+    if next_wake_up_duration_seconds is None or not isinstance(next_wake_up_duration_seconds, int):
+        next_wake_up_duration_seconds = settings.DEFAULT_WAKE_UP_SECONDS
+
+    if events or collected_tool_calls:
+        new_memory_summary = await compact_memory(
+            memory,
+            [{"events": events, "tool_calls": [tc.tool_name for tc in collected_tool_calls]}],
+            run_id,
+            f"{idempotency_key}:compact",
+        )
+    else:
+        new_memory_summary = memory
+
+    return AgentOutput(
+        new_memory_summary=new_memory_summary,
+        tool_calls=tuple(collected_tool_calls),
+        next_wake_up_duration_seconds=next_wake_up_duration_seconds,
+        is_terminal=is_terminal,
+    )
+
+
+@activity.defn
+async def compact_memory(memory: str, new_events: list[dict], run_id: str, idempotency_key: str) -> str:
+    settings = get_settings()
+    history = [{"prior_memory": memory}, *new_events]
+    new_summary = await _run_with_heartbeat(
+        agents.compact_memory, settings.ANTHROPIC_API_KEY, settings.MAIN_AGENT_MODEL, history
+    )
+    await persist_event(run_id, EventType.MEMORY_COMPACTED, {"summary": new_summary}, idempotency_key)
+    return new_summary
+
+
+@activity.defn
+async def generate_final_output(memory: str, run_id: str, idempotency_key: str) -> None:
+    settings = get_settings()
+    if await db.event_exists(idempotency_key):
+        return
+    summary = await _run_with_heartbeat(
+        agents.compact_memory,
+        settings.ANTHROPIC_API_KEY,
+        settings.MAIN_AGENT_MODEL,
+        [{"final_memory": memory}],
+    )
+    await db.insert_final_output(run_id, summary)
+    await db.persist_event(run_id, EventType.MEMORY_COMPACTED, {"final_summary": summary}, idempotency_key)
+
+
+@activity.defn
+async def execute_tool(tool_name: str, params: dict, run_id: str, idempotency_key: str) -> str:
+    if await db.event_exists(idempotency_key):
+        return "already executed (idempotent replay)"
+
+    # Tool execution is mocked for this POC: log the call and return a canned success string.
+    result_text = f"Mock execution of '{tool_name}' succeeded with params: {json.dumps(params)}"
+    await db.persist_event(
+        run_id,
+        EventType.TOOL_EXECUTED,
+        {"tool_name": tool_name, "params": params, "result": result_text},
+        idempotency_key,
+    )
+    return result_text
+
+
+@activity.defn
+async def persist_event(run_id: str, event_type: EventType, payload: dict, idempotency_key: str) -> None:
+    await db.persist_event(run_id, event_type, payload, idempotency_key)
+
+
+@activity.defn
+async def update_run_state(
+    run_id: str,
+    status: RunStatus,
+    memory: str,
+    next_wake_up: datetime | None,
+) -> None:
+    await db.update_run_state(run_id, status, memory, next_wake_up)

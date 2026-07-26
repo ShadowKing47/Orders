@@ -10,12 +10,18 @@ class Settings(BaseSettings):
     TEMPORAL_HOST: str
     ANTHROPIC_API_KEY: str
     FASTAPI_PORT: int = 8000
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:3000"
+    X_MAC_SECRET: str = ""
 
     CLASSIFIER_MODEL: str = "claude-haiku-4-5-20251001"
     MAIN_AGENT_MODEL: str = "claude-sonnet-5"
 
     FAST_TASK_QUEUE: str = "fast-tasks"
     LLM_TASK_QUEUE: str = "llm-tasks"
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()]
 
     DEFAULT_WAKE_UP_SECONDS: int = 14400  # 4 hours, safe fallback
     ACTIVITY_HEARTBEAT_TIMEOUT_SECONDS: int = 30

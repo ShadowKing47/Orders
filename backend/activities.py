@@ -58,10 +58,16 @@ _TOOL_HANDLERS = {
 }
 
 
-async def _run_with_heartbeat(blocking_fn, *args) -> object:
-    """Runs a blocking (sync) LLM call in a thread while heartbeating periodically."""
+async def _run_with_heartbeat(coro) -> object:
+    """Awaits a coroutine while heartbeating periodically.
 
-    task = asyncio.create_task(asyncio.to_thread(blocking_fn, *args))
+    Uses the native async Anthropic client (backend.agents), so cancellation
+    (e.g. on heartbeat timeout) propagates natively via asyncio/httpx into the
+    in-flight HTTP request instead of leaking a background thread that keeps
+    running the request to completion after Temporal has already moved on.
+    """
+
+    task = asyncio.ensure_future(coro)
     while not task.done():
         activity.heartbeat()
         await asyncio.wait([task], timeout=_HEARTBEAT_INTERVAL_SECONDS)
@@ -72,7 +78,7 @@ async def _run_with_heartbeat(blocking_fn, *args) -> object:
 async def run_classifier(event: str, run_id: str, idempotency_key: str) -> bool:
     settings = get_settings()
     return await _run_with_heartbeat(
-        agents.run_classifier, settings.ANTHROPIC_API_KEY, settings.CLASSIFIER_MODEL, event
+        agents.run_classifier(settings.ANTHROPIC_API_KEY, settings.CLASSIFIER_MODEL, event)
     )
 
 
@@ -107,14 +113,15 @@ async def run_main_agent(
     for _ in range(10):  # hard safety cap on loop iterations
         try:
             stop_reason, tool_calls = await _run_with_heartbeat(
-                agents.run_main_agent,
-                settings.ANTHROPIC_API_KEY,
-                settings.MAIN_AGENT_MODEL,
-                memory,
-                events,
-                instructions,
-                tool_results,
-                prior_assistant_content,
+                agents.run_main_agent(
+                    settings.ANTHROPIC_API_KEY,
+                    settings.MAIN_AGENT_MODEL,
+                    memory,
+                    events,
+                    instructions,
+                    tool_results,
+                    prior_assistant_content,
+                )
             )
         except Exception as exc:
             raise AgentParsingError(f"run_main_agent failed: {exc}") from exc
@@ -168,7 +175,7 @@ async def compact_memory(memory: str, new_events: list[dict], run_id: str, idemp
     settings = get_settings()
     history = [{"prior_memory": memory}, *new_events]
     new_summary = await _run_with_heartbeat(
-        agents.compact_memory, settings.ANTHROPIC_API_KEY, settings.MAIN_AGENT_MODEL, history
+        agents.compact_memory(settings.ANTHROPIC_API_KEY, settings.MAIN_AGENT_MODEL, history)
     )
     await persist_event(run_id, EventType.MEMORY_COMPACTED, {"summary": new_summary}, idempotency_key)
     return new_summary
@@ -180,10 +187,7 @@ async def generate_final_output(memory: str, run_id: str, idempotency_key: str) 
     if await db.event_exists(idempotency_key):
         return
     summary = await _run_with_heartbeat(
-        agents.compact_memory,
-        settings.ANTHROPIC_API_KEY,
-        settings.MAIN_AGENT_MODEL,
-        [{"final_memory": memory}],
+        agents.compact_memory(settings.ANTHROPIC_API_KEY, settings.MAIN_AGENT_MODEL, [{"final_memory": memory}])
     )
     await db.insert_final_output(run_id, summary)
     await db.persist_event(run_id, EventType.MEMORY_COMPACTED, {"final_summary": summary}, idempotency_key)

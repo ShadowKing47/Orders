@@ -1,0 +1,84 @@
+ORDER SUPERVISOR SYSTEM - HOW TO RUN
+=====================================
+
+PREREQUISITES
+--------------
+- Python 3.11+
+- Node.js 20+
+- Temporal CLI (brew install temporal)
+- A Supabase/Postgres project (use the SESSION POOLER connection string,
+  not the direct db.<ref>.supabase.co host - it needs IPv6 and may not
+  resolve on your network)
+- An Anthropic API key
+
+
+STEP 1: Configure environment
+------------------------------
+Edit the root .env file with your real values:
+
+  DATABASE_URL=postgresql://postgres.<project-ref>:<url-encoded-password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+  TEMPORAL_HOST=localhost:7233
+  ANTHROPIC_API_KEY=sk-ant-...
+  FASTAPI_PORT=8000
+  NEXT_PUBLIC_API_URL=http://localhost:8000
+
+Note: if your DB password contains special characters (@, ~, etc.),
+URL-encode them. Example: "ULY@7i-q~75~" becomes "ULY%407i-q~75~".
+
+
+STEP 2: Start Temporal dev server (new terminal tab)
+------------------------------------------------------
+  temporal server start-dev
+
+Leave this running. It serves the Temporal UI at http://localhost:8233
+and the gRPC endpoint at localhost:7233.
+
+
+STEP 3: Set up and start the backend (new terminal tab)
+-----------------------------------------------------------
+  cd /Users/noel/Documents/Orders
+  python3.11 -m venv .venv
+  .venv/bin/pip install -r requirements.txt
+  .venv/bin/python main.py
+
+This will:
+  - connect to Supabase and run init_db() (creates tables if missing)
+  - connect to the Temporal server
+  - start both workers (fast-tasks classifier, llm-tasks main agent)
+  - serve FastAPI on http://localhost:8000
+
+Leave this running.
+
+
+STEP 4: Set up and start the frontend (new terminal tab)
+--------------------------------------------------------
+  cd /Users/noel/Documents/Orders/frontend
+  npm install
+  npm run dev
+
+This regenerates frontend/.env.local from the root .env automatically
+(via load-env.js) before starting. Visit http://localhost:3000.
+
+
+STEP 5: Use the app
+--------------------
+1. Go to http://localhost:3000/supervisors and create a supervisor config
+   (name + optional extra instructions).
+2. Go to http://localhost:3000/runs and start a run against that config
+   with an order ID.
+3. Click into the run to see live status/memory, inject events, add
+   instructions, or pause/resume/terminate.
+
+
+TO STOP
+-------
+Ctrl+C in each terminal tab (frontend, backend, temporal server start-dev).
+
+
+OPTIONAL: Docker (backend only)
+--------------------------------
+  docker build -t order-supervisor .
+  docker run --env-file .env -p 8000:8000 order-supervisor
+
+The frontend is expected to run locally via npm run dev for fast
+iteration, per the project spec - it is not containerized.

@@ -1,4 +1,5 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const X_MAC_SECRET = process.env.NEXT_PUBLIC_X_MAC_SECRET ?? "";
 
 export type RunStatus = "RUNNING" | "SLEEPING" | "COMPLETED" | "TERMINATED" | "PAUSED";
 
@@ -33,7 +34,7 @@ class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: { "Content-Type": "application/json", "X-Mac": X_MAC_SECRET, ...init?.headers },
   });
   if (!res.ok) {
     const body = await res.text();

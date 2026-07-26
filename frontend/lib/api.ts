@@ -21,6 +21,20 @@ export interface Run {
   created_at: string;
 }
 
+export interface RunEvent {
+  id: string;
+  run_id: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface RunFinalOutput {
+  run_id: string;
+  summary: string;
+  created_at: string;
+}
+
 class ApiError extends Error {
   constructor(
     public status: number,
@@ -75,6 +89,14 @@ export function listRuns(): Promise<Run[]> {
 
 export function getRun(runId: string): Promise<Run> {
   return request<Run>(`/api/runs/${runId}`, { cache: "no-store" });
+}
+
+export function listRunEvents(runId: string): Promise<RunEvent[]> {
+  return request<RunEvent[]>(`/api/runs/${runId}/events`, { cache: "no-store" });
+}
+
+export function getRunFinalOutput(runId: string): Promise<RunFinalOutput | null> {
+  return request<RunFinalOutput | null>(`/api/runs/${runId}/final-output`, { cache: "no-store" });
 }
 
 export function startRun(configId: string, orderId: string): Promise<Run> {

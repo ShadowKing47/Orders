@@ -13,7 +13,6 @@ from cachetools.keys import hashkey
 
 from backend.exceptions import AgentParsingError, NonRetryableAgentError
 from backend.models.activity_io import ToolCall
-from backend.models.tools import all_tool_schemas
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts" / "v1"
 
@@ -66,6 +65,7 @@ async def run_main_agent(
     memory: str,
     events: list[dict],
     instructions: list[str],
+    tool_schemas: list[dict],
     tool_results: list[dict] | None = None,
     prior_assistant_content: list[dict] | None = None,
 ) -> tuple[str, list[ToolCall]]:
@@ -73,6 +73,11 @@ async def run_main_agent(
 
     If tool_results/prior_assistant_content are provided, this continues an
     existing agentic-loop turn (the Activity re-prompts after executing tools).
+
+    tool_schemas is caller-supplied (see activities.py) rather than always the
+    full tool set: a scheduled check-in with no new events only offers
+    schedule_next_wake_up, so the model isn't tempted to hallucinate a reason
+    to use a customer-facing/escalation tool just because one is available.
     """
     prompt = _load_prompt("main_agent.txt").format(
         memory=memory or "(no memory yet)",
@@ -91,7 +96,7 @@ async def run_main_agent(
         response = await client.messages.create(
             model=model,
             max_tokens=1024,
-            tools=all_tool_schemas(),
+            tools=tool_schemas,
             messages=messages,
         )
     except anthropic.APIError as exc:
@@ -122,4 +127,63 @@ async def compact_memory(api_key: str, model: str, history: list[dict]) -> str:
     text_blocks = [block.text for block in response.content if block.type == "text"]
     if not text_blocks:
         raise AgentParsingError("compact_memory: model returned no text content")
+    return "".join(text_blocks).strip()
+
+
+async def generate_final_summary(api_key: str, model: str, memory: str) -> str:
+    """Produces the run's closing summary: what happened, learnings, and feedback.
+
+    Distinct from compact_memory (which produces a lightweight running
+    summary after nearly every turn) — this only runs once, when the
+    workflow terminates, and explicitly asks for retrospective learnings and
+    process feedback rather than just a factual recap.
+    """
+    prompt = _load_prompt("final_summary.txt").format(memory=memory or "(no memory)")
+    client = _get_client(api_key)
+    try:
+        response = await client.messages.create(
+            model=model,
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except anthropic.APIError as exc:
+        _raise_for_api_error(exc)
+        raise
+
+    text_blocks = [block.text for block in response.content if block.type == "text"]
+    if not text_blocks:
+        raise AgentParsingError("generate_final_summary: model returned no text content")
+    return "".join(text_blocks).strip()
+
+
+async def consolidate_instructions(
+    api_key: str, model: str, current_standing_orders: str, new_instructions: list[str]
+) -> str:
+    """Merges newly added instructions into a single standing-orders string.
+
+    Prevents unbounded accumulation of a raw instruction list across a
+    multi-week run: rather than appending every add_instruction call to a
+    list that gets re-sent in full on every main-agent prompt (growing
+    unboundedly and eventually confusing the model or bloating token count),
+    new instructions are periodically folded into one coherent string,
+    letting the LLM resolve conflicts by favoring more recent instructions.
+    """
+    prompt = _load_prompt("instruction_consolidator.txt").format(
+        current_standing_orders=current_standing_orders or "(none yet)",
+        new_instructions=new_instructions,
+    )
+    client = _get_client(api_key)
+    try:
+        response = await client.messages.create(
+            model=model,
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except anthropic.APIError as exc:
+        _raise_for_api_error(exc)
+        raise
+
+    text_blocks = [block.text for block in response.content if block.type == "text"]
+    if not text_blocks:
+        raise AgentParsingError("consolidate_instructions: model returned no text content")
     return "".join(text_blocks).strip()

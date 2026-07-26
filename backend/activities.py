@@ -26,12 +26,25 @@ class _MainAgentLoopState:
     is_terminal: bool = False
 
 
+async def _persist_tool_call(tool_call: ToolCall, run_id: str, idempotency_key: str, result_text: str) -> None:
+    if await db.event_exists(idempotency_key):
+        return
+    await db.persist_event(
+        run_id,
+        EventType.TOOL_EXECUTED,
+        {"tool_name": tool_call.tool_name, "params": tool_call.tool_input, "result": result_text},
+        idempotency_key,
+    )
+
+
 async def _handle_schedule_next_wake_up(
     tool_call: ToolCall, state: _MainAgentLoopState, run_id: str, idempotency_key: str
 ) -> _MainAgentLoopState:
+    result_text = "scheduled"
+    await _persist_tool_call(tool_call, run_id, idempotency_key, result_text)
     return replace(
         state,
-        result_text="scheduled",
+        result_text=result_text,
         next_wake_up_duration_seconds=tool_call.tool_input.get("next_wake_up_duration_seconds"),
     )
 
@@ -39,9 +52,11 @@ async def _handle_schedule_next_wake_up(
 async def _handle_mark_order_complete(
     tool_call: ToolCall, state: _MainAgentLoopState, run_id: str, idempotency_key: str
 ) -> _MainAgentLoopState:
+    result_text = f"order marked complete: {tool_call.tool_input.get('final_status')}"
+    await _persist_tool_call(tool_call, run_id, idempotency_key, result_text)
     return replace(
         state,
-        result_text=f"order marked complete: {tool_call.tool_input.get('final_status')}",
+        result_text=result_text,
         is_terminal=True,
     )
 

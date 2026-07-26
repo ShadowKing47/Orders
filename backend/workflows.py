@@ -95,6 +95,7 @@ class OrderSupervisorWorkflow:
         self.is_terminal = True
         self.is_paused = False  # don't let a paused run get stuck waiting past termination
         self.status = RunStatus.TERMINATED
+        self.next_wake_up_time = None  # a terminated run will never wake again
         self._status_persist_pending = True
 
     @workflow.query
@@ -169,8 +170,6 @@ class OrderSupervisorWorkflow:
         self.event_count += 1
 
         self.current_memory_summary = output.new_memory_summary
-        wake_seconds = output.next_wake_up_duration_seconds
-        self.next_wake_up_time = workflow.now() + timedelta(seconds=wake_seconds)
 
         if self.is_terminal:
             # A terminate_workflow signal landed while this activity was in flight — don't
@@ -180,6 +179,11 @@ class OrderSupervisorWorkflow:
 
         self.is_terminal = output.is_terminal
         self.status = RunStatus.SLEEPING if not self.is_terminal else RunStatus.COMPLETED
+        # A run the agent just marked complete (e.g. via mark_order_complete) will never wake
+        # again — don't persist a stale future wake-up time alongside a terminal status.
+        self.next_wake_up_time = None if self.is_terminal else workflow.now() + timedelta(
+            seconds=output.next_wake_up_duration_seconds
+        )
         await self._persist_run_state()
 
     @workflow.run

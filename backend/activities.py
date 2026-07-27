@@ -200,7 +200,7 @@ async def compact_memory(memory: str, new_events: list[dict], run_id: str, idemp
     settings = get_settings()
     history = [{"prior_memory": memory}, *new_events]
     new_summary = await _run_with_heartbeat(
-        agents.compact_memory(settings.ANTHROPIC_API_KEY, settings.MAIN_AGENT_MODEL, history)
+        agents.compact_memory(settings.ANTHROPIC_API_KEY, settings.COMPACTOR_MODEL, history)
     )
     await db.persist_event(run_id, EventType.MEMORY_COMPACTED, {"summary": new_summary}, idempotency_key)
     return new_summary

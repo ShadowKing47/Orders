@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     CLASSIFIER_MODEL: str = "claude-haiku-4-5-20251001"
     MAIN_AGENT_MODEL: str = "claude-sonnet-5"
+    COMPACTOR_MODEL: str = "claude-haiku-4-5-20251001"
 
     FAST_TASK_QUEUE: str = "fast-tasks"
     LLM_TASK_QUEUE: str = "llm-tasks"

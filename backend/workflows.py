@@ -23,6 +23,7 @@ _MAX_EVENT_COUNT_BEFORE_CONTINUE = 4000  # buffer well below Temporal's ~50k eve
 _CLASSIFIER_BYPASS_BACKLOG_THRESHOLD = 5  # dead-man's switch against a stuck-on-NO classifier
 _INSTRUCTION_CONSOLIDATION_THRESHOLD = 3  # batch new instructions before paying for an LLM merge
 _INSTRUCTION_LLM_CONSOLIDATION_MIN_CHARS = 500  # below this, a plain local join is cheaper and just as correct
+_MIN_VISIBLE_RUNNING_SECONDS = 15  # cosmetic floor so RUNNING is observable in the UI, not just a flicker
 
 
 @dataclass
@@ -153,7 +154,10 @@ class OrderSupervisorWorkflow:
         self.pending_instructions = []
         self.event_count += 1
 
-    async def _run_main_agent_and_update(self, events: list[dict], idempotency_prefix: str) -> None:
+    async def _run_main_agent_and_update(
+        self, events: list[dict], idempotency_prefix: str, min_visible_running_seconds: int = 0
+    ) -> None:
+        started_at = workflow.now()
         output: AgentOutput = await workflow.execute_activity(
             activities.run_main_agent,
             args=[
@@ -170,6 +174,16 @@ class OrderSupervisorWorkflow:
         self.event_count += 1
 
         self.current_memory_summary = output.new_memory_summary
+
+        if min_visible_running_seconds and not self.is_terminal:
+            # Cosmetic floor: the real agent call can finish in a couple seconds, which makes
+            # RUNNING flicker too fast to observe in the UI. Pad the remainder (if any) with a
+            # deterministic Temporal timer before flipping back to SLEEPING/COMPLETED — never
+            # applied to a run that just went terminal, since there's nothing left to "show".
+            elapsed = (workflow.now() - started_at).total_seconds()
+            remaining = min_visible_running_seconds - elapsed
+            if remaining > 0:
+                await workflow.sleep(remaining)
 
         if self.is_terminal:
             # A terminate_workflow signal landed while this activity was in flight — don't
@@ -289,8 +303,16 @@ class OrderSupervisorWorkflow:
                     self.status = RunStatus.SLEEPING
             else:
                 iteration += 1
+                # Scheduled check-in with no new events still does real work (an LLM call),
+                # but nothing here previously set status=RUNNING first — the run silently
+                # stayed SLEEPING in the DB for the whole call. Persist RUNNING before the
+                # call so the UI reflects that the agent is actually active right now.
+                self.status = RunStatus.RUNNING
+                await self._persist_run_state()
                 await self._run_main_agent_and_update(
-                    events=[], idempotency_prefix=f"{workflow_input.run_id}:scheduled:{iteration}"
+                    events=[],
+                    idempotency_prefix=f"{workflow_input.run_id}:scheduled:{iteration}",
+                    min_visible_running_seconds=_MIN_VISIBLE_RUNNING_SECONDS,
                 )
 
         if self._status_persist_pending:

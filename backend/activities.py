@@ -174,7 +174,10 @@ async def run_main_agent(
     if next_wake_up_duration_seconds is None or not isinstance(next_wake_up_duration_seconds, int):
         next_wake_up_duration_seconds = settings.DEFAULT_WAKE_UP_SECONDS
 
-    if events or collected_tool_calls:
+    # Only compact memory if new facts entered the system (events) or a real-world action was
+    # taken. Updating the internal schedule_next_wake_up timer does not change order state.
+    has_real_tool_call = any(tc.tool_name != "schedule_next_wake_up" for tc in collected_tool_calls)
+    if events or has_real_tool_call:
         new_memory_summary = await compact_memory(
             memory,
             [{"events": events, "tool_calls": [tc.tool_name for tc in collected_tool_calls]}],

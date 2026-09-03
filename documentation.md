@@ -208,28 +208,19 @@ order they matter most:
     loop body's own persist-on-exit logic could run). (`workflows.py`,
     `routers.py`)
 
-12. **Clean 409s instead of opaque `RPCError`-driven 500s.** Signaling a
-    workflow that's already ended (naturally, or from a prior terminate)
-    raises `temporalio`'s `RPCError`. Left uncaught, this 500'd — and because
-    it originated inside a custom header-check middleware that re-raises
-    before `CORSMiddleware` can attach headers, browsers reported it as an
-    opaque `TypeError: Failed to fetch` instead of a debuggable HTTP error.
-    A shared `_signal_or_409` helper wraps every signal-sending route,
-    converting `RPCError` into a clean `409 Conflict`. (`routers.py`)
-
-13. **Module-level prompt caching.** `_load_prompt(name)` is
+12. **Module-level prompt caching.** `_load_prompt(name)` is
     `@lru_cache(maxsize=None)` — unbounded, but safe, since the set of prompt
     filenames is small and fixed (5 total). First call per prompt reads from
     disk; every call after that is a cache hit, with no eviction risk.
     (`agents.py`)
 
-14. **TTL'd Anthropic client cache.** The Anthropic client is cached per API
+13. **TTL'd Anthropic client cache.** The Anthropic client is cached per API
     key with a 20-minute TTL (`cachetools.TTLCache`) rather than an
     unbounded `@lru_cache` — avoids creating a fresh client (and its
     underlying HTTP connection pool) on every call while still recycling
     stale clients periodically. (`agents.py`)
 
-15. **Smart client-side polling on the run detail page.** `RunPoller.tsx` is
+14. **Smart client-side polling on the run detail page.** `RunPoller.tsx` is
     a Client Component that renders nothing — it polls `getRun(runId)` every
     10 seconds and only calls `router.refresh()` (a full Server Component
     re-render) if the run's `status` actually changed since the last known
@@ -241,7 +232,7 @@ order they matter most:
     re-rendering the server tree every tick regardless of whether anything
     changed. (`app/components/RunPoller.tsx`)
 
-16. **Dead code removed after an audit.** An unregistered/undispatched
+15. **Dead code removed after an audit.** An unregistered/undispatched
     Activity wrapper, unused imports, a never-instantiated dataclass, an
     unused exception class, and an unused package barrel export were found
     (each cross-checked against every call site before deletion) and

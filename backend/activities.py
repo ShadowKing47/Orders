@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import warnings
 from dataclasses import dataclass, replace
 from datetime import datetime
 
@@ -15,6 +16,7 @@ from backend.models.enums import EventType, RunStatus
 from backend.models.tools import all_tool_schemas, scheduled_check_in_tool_schemas
 
 _HEARTBEAT_INTERVAL_SECONDS = 10
+_MAX_MEMORY_SUMMARY_CHARS = 2000
 
 
 @dataclass(frozen=True)
@@ -202,6 +204,12 @@ async def compact_memory(memory: str, new_events: list[dict], run_id: str, idemp
     new_summary = await _run_with_heartbeat(
         agents.compact_memory(settings.ANTHROPIC_API_KEY, settings.COMPACTOR_MODEL, history)
     )
+    if len(new_summary) > _MAX_MEMORY_SUMMARY_CHARS:
+        warnings.warn(
+            f"memory summary exceeded cap for run {run_id}: {len(new_summary)} > {_MAX_MEMORY_SUMMARY_CHARS}; "
+            "engineering follow-up required",
+            stacklevel=2,
+        )
     await db.persist_event(run_id, EventType.MEMORY_COMPACTED, {"summary": new_summary}, idempotency_key)
     return new_summary
 

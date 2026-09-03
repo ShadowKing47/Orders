@@ -238,12 +238,3 @@ order they matter most:
     (each cross-checked against every call site before deletion) and
     removed, keeping the codebase's actual surface area matching what's
     really in use.
-
-## Known gaps (not yet addressed)
-
-- **Unbounded memory-summary growth.** `compact_memory` folds prior memory +
-  new events into a fresh summary every turn, guided by a word-count
-  instruction to the LLM — not an enforced constraint. Nothing currently
-  checks/truncates the returned summary's length before it's stored and fed
-  into the *next* compaction call.
-

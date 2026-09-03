@@ -34,8 +34,6 @@ Browser (Next.js) --HTTP--> FastAPI (routers.py) --signals/start--> Temporal wor
 - **`main.py`** — FastAPI server + two Temporal workers in one process:
   - `fast-tasks` queue: the lightweight event classifier.
   - `llm-tasks` queue: the main agent, memory compaction, and all DB writes.
-  - CORS middleware (`CORS_ALLOWED_ORIGINS`) and an `X-Mac` shared-secret
-    header gate (`X_MAC_SECRET`) sit in front of every route.
 - **`backend/workflows.py`** — `OrderSupervisorWorkflow`, a deterministic state
   machine and the system's orchestrator. No I/O, no `anthropic`/`asyncpg`/
   `datetime.now()` imports.
@@ -88,16 +86,7 @@ Browser (Next.js) --HTTP--> FastAPI (routers.py) --signals/start--> Temporal wor
    | `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key used for both the classifier (Haiku) and main agent (Sonnet). |
    | `FASTAPI_PORT` | No | `8000` | Port the backend listens on. |
    | `CORS_ALLOWED_ORIGINS` | No | `http://localhost:3000` | Comma-separated list of origins allowed to call the backend. |
-   | `X_MAC_SECRET` | No | `""` | Shared-secret value the backend requires on every request's `X-Mac` header. |
-   | `NEXT_PUBLIC_X_MAC_SECRET` | Yes (if `X_MAC_SECRET` is set) | — | Must be **identical** to `X_MAC_SECRET` — this is what the frontend actually sends. |
-   | `NEXT_PUBLIC_API_URL` | Yes | `http://localhost:8000` | Backend base URL the frontend calls. |
-
-   Only keys prefixed `NEXT_PUBLIC_` are exposed to the frontend/browser;
-   everything else (`DATABASE_URL`, `ANTHROPIC_API_KEY`, `X_MAC_SECRET`, etc.)
-   stays backend-only. `frontend/next.config.js` reads the root `.env`
-   directly at config-load time and injects any `NEXT_PUBLIC_*` key into
-   Next.js's `env` field — no generated `.env.local` file, no `dotenv`
-   dependency, and nothing to duplicate between backend and frontend.
+   | `http://localhost:8000` | Backend base URL the frontend calls. |
 
 2. Start a local Temporal dev server:
    ```bash
@@ -139,8 +128,7 @@ docker run --env-file .env -p 8000:8000 order-supervisor
 See `backend/routers.py` for the full route list: supervisor config CRUD, run
 lifecycle (`start`, `events`, `instructions`, `interrupt`, `resume`,
 `terminate`), run listing/detail, run event history, and final-output
-retrieval. Every request must carry an `X-Mac` header matching
-`X_MAC_SECRET`, or the backend rejects it with 401.
+retrieval. 
 
 ## Further reading
 

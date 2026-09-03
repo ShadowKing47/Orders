@@ -52,7 +52,7 @@ is a hard requirement for any Temporal workflow.
 | Frontend | Next.js 16 (App Router, React 19) |
 | Styling | Tailwind CSS 3 with a custom semantic color-token theme, `@tailwindcss/typography` for Markdown rendering |
 | Markdown rendering | `react-markdown` (agent memory/final-summary text) |
-| Auth (POC-level) | A shared-secret `X-Mac` header, checked on every backend request |
+
 
 ## File-by-file: what does what
 
@@ -60,7 +60,7 @@ is a hard requirement for any Temporal workflow.
 
 | File | Purpose |
 |---|---|
-| `main.py` | Entrypoint. Boots the FastAPI app (with its `lifespan` hook initializing the DB pool and Temporal client), and runs two Temporal Workers in the same process: one polling `fast-tasks` (just the classifier activity) and one polling `llm-tasks` (the main agent, memory compaction, instruction consolidation, final summary, tool execution, DB state updates). Also wires up the `X-Mac` header-check middleware and CORS. |
+| `main.py` | Entrypoint. Boots the FastAPI app (with its `lifespan` hook initializing the DB pool and Temporal client), and runs two Temporal Workers in the same process: one polling `fast-tasks` (just the classifier activity) and one polling `llm-tasks` (the main agent, memory compaction, instruction consolidation, final summary, tool execution, DB state updates). 
 | `config.py` | `Settings` (a `pydantic-settings` `BaseSettings`), loaded once via `@lru_cache` from the root `.env`. Every tunable — model IDs, task queue names, per-queue concurrency caps, timeouts, the default wake-up duration — lives here, not scattered across the codebase. |
 | `requirements.txt` | Pinned backend dependencies. |
 | `README.md` | Setup/run instructions. |
@@ -104,7 +104,7 @@ is a hard requirement for any Temporal workflow.
 | `app/components/RunPoller.tsx` | Client Component, renders nothing. Background "smart polling" — see Optimizations below. |
 | `app/components/CreateRunForm.tsx` / `CreateSupervisorForm.tsx` | Client Component forms for the two creation flows. |
 | `app/components/icons/index.tsx` | Inline SVG icon set used throughout. |
-| `lib/api.ts` | The only place that calls the backend. Typed fetch wrappers for every route, attaching the `X-Mac` header and `Content-Type` to every request. |
+| `lib/api.ts` | The only place that calls the backend. Typed fetch wrappers for every route, attaching `Content-Type` to every request. |
 | `tailwind.config.ts` | Custom semantic color tokens (surface, on-surface, error-container, etc.) plus the typography plugin. |
 
 ## Optimizations

@@ -11,7 +11,6 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str
     FASTAPI_PORT: int = 8000
     CORS_ALLOWED_ORIGINS: str = "http://localhost:3000"
-    X_MAC_SECRET: str = ""
 
     CLASSIFIER_MODEL: str = "claude-haiku-4-5-20251001"
     MAIN_AGENT_MODEL: str = "claude-sonnet-5"

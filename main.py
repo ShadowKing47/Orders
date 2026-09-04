@@ -4,9 +4,8 @@ import asyncio
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from temporalio.client import Client
 from temporalio.worker import Worker
 
@@ -78,14 +77,7 @@ async def lifespan(app: FastAPI):
         await db.close_pool()
 
 
-async def _require_x_mac_header(request: Request, call_next):
-    if request.method != "OPTIONS" and request.headers.get("x-mac") != get_settings().X_MAC_SECRET:
-        return JSONResponse(status_code=401, content={"detail": "Missing or invalid X-Mac header"})
-    return await call_next(request)
-
-
 app = FastAPI(title="Order Supervisor System", lifespan=lifespan)
-app.middleware("http")(_require_x_mac_header)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_allowed_origins_list,

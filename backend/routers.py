@@ -126,11 +126,9 @@ async def _signal_or_409(handle, *signal_args) -> None:
 
     A signal to a workflow that already ended (naturally, or from a prior
     terminate) raises temporalio's RPCError uncaught otherwise — which
-    FastAPI has no handler for, so it 500s. Worse, that 500 originates
-    inside the X-Mac middleware's BaseHTTPMiddleware wrapper, which
-    re-raises before CORSMiddleware can attach CORS headers to the error
-    response, so browsers report it as an opaque "Failed to fetch" instead
-    of a real HTTP error — hard to diagnose from the frontend alone.
+    FastAPI has no handler for, so it 500s. The app converts that case into
+    a clean 409 so the frontend sees a meaningful error instead of a generic
+    fetch failure.
     """
     try:
         await handle.signal(*signal_args)
